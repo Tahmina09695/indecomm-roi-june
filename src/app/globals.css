@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap");
+
+html, body {
+  font-family: "Open Sans", system-ui, sans-serif;
+  background: #F7F8FC;
+  color: #1B2440;
+}
+
+/* Soft pulse / glow used by the Indecomm ROI Suite hero badge.
+   Gentle so it draws the eye without looking gimmicky. */
+@keyframes brandPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgba(241, 164, 33, 0.55),
+      0 10px 30px rgba(0, 32, 96, 0.35);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 14px rgba(241, 164, 33, 0),
+      0 10px 30px rgba(0, 32, 96, 0.35);
+    transform: scale(1.02);
+  }
+}
+.brand-pulse {
+  animation: brandPulse 2.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, #FFE9C2 0%, #ffffff 30%, #FFE9C2 60%, #ffffff 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 4s linear infinite;
+}
+
+/* Number-style inputs without spinners for cleaner look */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+/* ====== Print: render ONLY the dashboard, on a single letter page ====== */
+.print-only { display: none; }
+
+@media print {
+  @page {
+    size: letter landscape;
+    margin: 0.4in;
+  }
+
+  /* Force browsers to print background colors / borders we use for the dashboard. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide everything by default, then show only the dashboard subtree. */
+  body * { visibility: hidden !important; }
+  .print-only, .print-only * { visibility: visible !important; }
+
+  /* Make the dashboard fill the page exactly. */
+  .print-only {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white;
+    color: #002060;
+  }
+
+  /* Avoid awkward page splits inside the dashboard. */
+  .print-only, .print-only * {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  html, body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print { display: none !important; }
+}
