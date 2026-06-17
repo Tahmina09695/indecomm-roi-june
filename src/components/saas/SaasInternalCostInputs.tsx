@@ -129,11 +129,22 @@ export function SaasInternalCostInputs() {
           <div className="text-xs uppercase tracking-wider opacity-80">Total Annual Cost Before</div>
           <div className="text-xs opacity-60 mt-0.5">{fmtFTE(r.internal.totalFTEBefore)} total FTEs</div>
           <div className="text-2xl font-bold mt-1">{fmtCurrency(r.internal.annualBefore)}</div>
+          <div className="text-[11px] opacity-75 mt-2 leading-snug">
+            Includes: direct labor + supervisor + benefits + indirect
+            {r.internal.currentPlatformAnnualCost > 0
+              ? <> + legacy platform ({fmtCurrency(r.internal.currentPlatformAnnualCost)})</>
+              : null}
+          </div>
         </div>
         <div className="rounded-xl shadow-card px-5 py-4 text-white" style={{ background: accent }}>
           <div className="text-xs uppercase tracking-wider opacity-90">Total Annual Cost After</div>
           <div className="text-xs opacity-75 mt-0.5">{fmtFTE(r.internal.totalFTEAfter)} total FTEs · {fmtFTE(r.internal.fteSaved)} saved</div>
           <div className="text-2xl font-bold mt-1">{fmtCurrency(r.internal.annualAfter)}</div>
+          <div className="text-[11px] opacity-90 mt-2 leading-snug">
+            Includes: direct labor + supervisor + benefits + indirect.
+            <br />
+            Indecomm platform spend shown separately below.
+          </div>
         </div>
       </div>
     </>

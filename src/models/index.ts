@@ -5,9 +5,11 @@ import { pchPostClose } from "./pch-postclose";
 import { pchTrailing } from "./pch-trailing";
 import { ppr } from "./ppr";
 import { underwriting } from "./underwriting";
+import { dataEntryValidation } from "./data-entry-validation";
 import { idxgenius } from "./idxgenius";
 import { idxgeniusBulk } from "./idxgenius-bulk";
 import { decisiongenius } from "./decisiongenius";
+import { navyFederal } from "./navy-federal";
 import type { ModelConfig } from "./_types";
 import type { SaasModelConfig } from "./_saas-types";
 
@@ -20,14 +22,23 @@ export const MODELS: Record<string, ModelConfig> = {
   "pch-trailing": pchTrailing,
   ppr,
   underwriting,
+  "data-entry-validation": dataEntryValidation,
 };
 
 // Active SaaS automation models — implemented and usable. Distinct from MODELS
 // because their calculation shape is different (before/after vs in-house/outsourced).
+//
+// NOTE: `navy-federal` is intentionally registered here but NOT added to any
+// group in `GROUPS` below. This makes it accessible via direct URL only
+// (`/calculator/navy-federal`) — it never appears on the landing page or any
+// group page. This is "hidden by URL" (security through obscurity) for RFP-
+// stage client scenarios; upgrade to a passcode gate if broader sharing is
+// needed.
 export const SAAS_MODELS: Record<string, SaasModelConfig> = {
   idxgenius,
   "idxgenius-bulk": idxgeniusBulk,
   decisiongenius,
+  "navy-federal": navyFederal,
 };
 
 export type ComingSoonModel = {
@@ -98,18 +109,18 @@ export const GROUPS: Group[] = [
     modelIds: ["pch-postclose", "pch-trailing"],
   },
   {
-    id: "uw-ppr",
-    name: "Underwriting & Pre-Purchase Reviews",
+    id: "bpo",
+    name: "BPO ROI Calculator",
     tagline:
-      "Loan underwriting and pre-purchase review ROI — powered by DecisionGenius (UW) and AuditGenius (PPR).",
-    platform: "DecisionGenius + AuditGenius",
+      "Onshore-vs-Indecomm BPO ROI for underwriting, pre-purchase review, and data-entry + validation — powered by DecisionGenius (UW), AuditGenius (PPR), and Indecomm's managed BPO operations.",
+    platform: "DecisionGenius + AuditGenius + Indecomm BPO",
     accentHex: "#2076BA",
     imageSrc: "/groups/uw-ppr.svg",
     platformLogos: [
       { src: "/logos/Decision-Genius-Logo_color_Black.png", alt: "DecisionGenius" },
       { src: "/logos/Audit-Genius-Logo-Color_Black.png", alt: "AuditGenius" },
     ],
-    modelIds: ["underwriting", "ppr"],
+    modelIds: ["underwriting", "ppr", "data-entry-validation"],
   },
 ];
 

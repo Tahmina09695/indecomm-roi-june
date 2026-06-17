@@ -18,6 +18,13 @@ export type SaasRoleDef = {
   defaultImprovementPct: number;
   /** Volume input ID that drives FTE need for this role. */
   volumeKey: string;
+  /**
+   * When true, the After-state FTE for this role is forced to 0 — the role is
+   * fully eliminated by the platform (e.g., manual indexing replaced by
+   * IDXGenius Gen-AI extraction). This overrides the productivity-improvement
+   * math, which would otherwise only halve / reduce the role.
+   */
+  eliminatedByPlatform?: boolean;
   help?: string;
 };
 
@@ -37,6 +44,23 @@ export type SaasPricing = {
   licenseLineLabel: string;
   /** Display label for the implementation fee, e.g. "IDXGenius.ai implementation". */
   implementationLineLabel: string;
+  /**
+   * Optional: client's current annual platform/system cost (legacy software
+   * being replaced by Indecomm's stack). When set, the engine ADDS this to
+   * the "Before" annual cost and the platform line replaces it on the
+   * "After" side. Use this for models where the prospect's incumbent
+   * platforms are a meaningful cost line (e.g., NFCU's Paradatec, Hyland
+   * Voyager, Trinity).
+   */
+  defaultCurrentPlatformAnnualCost?: number;
+  /**
+   * Optional fixed annual license fee that overrides the per-loan license
+   * calculation entirely. Used when the proposed pricing is a flat or
+   * pre-negotiated annual figure (e.g., NFCU's RFP-quoted bundle price).
+   * When set, `defaultPerLoanMonthlyFee` is ignored for total spend
+   * calculations; per-loan unit prices still display as informational.
+   */
+  defaultFixedAnnualLicense?: number;
 };
 
 export type SaasModelConfig = {
@@ -79,4 +103,40 @@ export type SaasModelConfig = {
    *    to a prospect (e.g., IDXGenius at default volumes shows ROI > 1000%).
    */
   displayPreference?: "roi-first" | "savings-first";
+
+  /**
+   * Tone for labels around headcount reduction. Some clients (e.g., NFCU) are
+   * sensitive about "layoffs / FTEs saved" language and prefer to frame the
+   * productivity lift as freed capacity that can be redeployed.
+   *  - "savings"        = default — "FTEs Saved", "Headcount Reduction" etc.
+   *  - "capacity-freed" = softer — "FTE Capacity Freed", "Redeployable FTEs"
+   */
+  tone?: "savings" | "capacity-freed";
+
+  /**
+   * Optional 3-year pricing escalator (e.g., 0.03 for 3% annual). When set,
+   * the engine produces a year3 result and applies the escalator to:
+   *   - Indecomm annual license (Y2 = annual × (1+esc), Y3 = annual × (1+esc)^2)
+   *   - Current platform cost (legacy) — same escalator
+   *   - In-house labor + indirect — held flat by default
+   * Reps can adjust per scenario.
+   */
+  pricingEscalatorAnnual?: number;
+
+  /**
+   * When true, the engine includes a 3-year aggregate (Y1+Y2+Y3) view in the
+   * SaaS result. Defaults to false; turn on for RFP-stage models that pitch
+   * 3-year totals (NFCU).
+   */
+  enableThreeYearView?: boolean;
+
+  /**
+   * Volume input display preference. When "annual-primary", the volume input
+   * field shows the annual number as the headline value (matching RFP figures
+   * like NFCU's Table 1) with a smaller "monthly equivalent" subscript.
+   * Internally the engine still uses monthly volume — only display changes.
+   *  - "monthly-primary" (default) — original behavior
+   *  - "annual-primary" — annual number prominent, monthly underneath
+   */
+  volumeDisplay?: "monthly-primary" | "annual-primary";
 };

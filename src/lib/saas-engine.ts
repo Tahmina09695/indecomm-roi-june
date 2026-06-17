@@ -49,6 +49,19 @@ export type SaasInputs = {
   pricing: {
     perLoanMonthlyFee: number;
     oneTimeImplementationFee: number;
+    /**
+     * Optional: client's current annual platform/system cost (legacy software
+     * to be replaced by Indecomm's platforms). When > 0, the engine ADDS this
+     * to the Before annual cost. The "After" side replaces it with Indecomm's
+     * platform fee. Defaults from model.pricing.defaultCurrentPlatformAnnualCost.
+     */
+    currentPlatformAnnualCost?: number;
+    /**
+     * Optional: fixed annual license that overrides per-loan license
+     * calculation (when the deal is priced as a flat annual figure).
+     * Defaults from model.pricing.defaultFixedAnnualLicense.
+     */
+    fixedAnnualLicense?: number;
   };
 };
 
@@ -86,6 +99,8 @@ export function buildSaasDefaults(model: SaasModelConfig): SaasInputs {
     pricing: {
       perLoanMonthlyFee: model.pricing.defaultPerLoanMonthlyFee,
       oneTimeImplementationFee: model.pricing.defaultOneTimeImplementationFee,
+      currentPlatformAnnualCost: model.pricing.defaultCurrentPlatformAnnualCost ?? 0,
+      fixedAnnualLicense: model.pricing.defaultFixedAnnualLicense,
     },
   };
 }
@@ -129,7 +144,10 @@ export function computeSaasRoles(model: SaasModelConfig, inputs: SaasInputs): Sa
     const volume = inputs.volumes[r.volumeKey] ?? 0;
     const fteBefore = fteNeed(r, volume, ri.baselineProductivity);
     const improved = ri.baselineProductivity * (1 + ri.improvementPct);
-    const fteAfter = fteNeed(r, volume, improved);
+    // When the platform fully eliminates this role (e.g., IDXGenius replacing
+    // manual indexing), force After FTE to 0 regardless of the productivity
+    // math. Otherwise compute from improved productivity.
+    const fteAfter = r.eliminatedByPlatform ? 0 : fteNeed(r, volume, improved);
     const annualSalary = ri.hourlyRate * WORKING_HOURS_PER_YEAR;
     return {
       roleId: r.id,
@@ -205,6 +223,16 @@ export type SaasInternalBreakdown = {
   directTotalAfter: number;
   indirectTotalBefore: number;
   indirectTotalAfter: number;
+  /**
+   * Current platform / legacy systems annual cost (Before only). 0 when the
+   * model doesn't use this field.
+   */
+  currentPlatformAnnualCost: number;
+  /**
+   * Before annual = direct + benefits + indirect + currentPlatformAnnualCost.
+   * After annual  = direct + benefits + indirect (NO current platform — Indecomm
+   * platform cost is tracked separately in SaasPlatformSpend).
+   */
   annualBefore: number;
   annualAfter: number;
   totalFTEBefore: number;
@@ -227,7 +255,9 @@ export function computeSaasInternal(model: SaasModelConfig, inputs: SaasInputs):
   const indirectTotalBefore = indirects.reduce((s, i) => s + i.costBefore, 0);
   const indirectTotalAfter = indirects.reduce((s, i) => s + i.costAfter, 0);
 
-  const annualBefore = directTotalBefore + benefitsBefore + indirectTotalBefore;
+  const currentPlatformAnnualCost = Math.max(0, inputs.pricing.currentPlatformAnnualCost ?? 0);
+
+  const annualBefore = directTotalBefore + benefitsBefore + indirectTotalBefore + currentPlatformAnnualCost;
   const annualAfter = directTotalAfter + benefitsAfter + indirectTotalAfter;
 
   const totalFTEBefore = roles.reduce((s, r) => s + r.fteBefore, 0) + supervisor.fteBefore;
@@ -242,6 +272,7 @@ export function computeSaasInternal(model: SaasModelConfig, inputs: SaasInputs):
     directTotalAfter,
     indirectTotalBefore,
     indirectTotalAfter,
+    currentPlatformAnnualCost,
     annualBefore,
     annualAfter,
     totalFTEBefore,
@@ -257,20 +288,36 @@ export type SaasPlatformSpend = {
   oneTimeImpl: number;
   year1Spend: number;
   year2Spend: number;
+  /** Year 3 spend = annualLicense × (1+escalator)^2. Equal to year2Spend × (1+escalator) when escalator > 0. */
+  year3Spend: number;
 };
 
 export function computeSaasPlatformSpend(model: SaasModelConfig, inputs: SaasInputs): SaasPlatformSpend {
   // Pick the volume that drives per-loan pricing.
   const volKey = model.perLoanVolumeKey ?? model.roles[0]?.volumeKey ?? model.volumeInputs[0]?.id;
   const loansPerMonth = inputs.volumes[volKey ?? ""] ?? 0;
-  const annualLicense = loansPerMonth * 12 * inputs.pricing.perLoanMonthlyFee;
+  // If the model defines a fixed annual license (NFCU-style RFP pricing),
+  // use it as the authoritative annual license number — the per-loan field
+  // becomes informational only. Otherwise, derive license from per-loan × volume.
+  const fixed = inputs.pricing.fixedAnnualLicense;
+  const annualLicense = (fixed !== undefined && fixed > 0)
+    ? fixed
+    : loansPerMonth * 12 * inputs.pricing.perLoanMonthlyFee;
+
+  // Annual escalator (e.g., 0.03 = 3%) is applied to Y2 and Y3 license.
+  // For models without a configured escalator, both years stay at the same license.
+  const esc = model.pricingEscalatorAnnual ?? 0;
+  const year2License = annualLicense * (1 + esc);
+  const year3License = annualLicense * (1 + esc) * (1 + esc);
+
   return {
     monthlyLicensePerLoan: inputs.pricing.perLoanMonthlyFee,
     loansPerMonth,
     annualLicense,
     oneTimeImpl: inputs.pricing.oneTimeImplementationFee,
     year1Spend: annualLicense + inputs.pricing.oneTimeImplementationFee,
-    year2Spend: annualLicense,
+    year2Spend: year2License,
+    year3Spend: year3License,
   };
 }
 
@@ -287,48 +334,96 @@ export type SaasResult = {
   platform: SaasPlatformSpend;
   year1: SaasYearResult;
   year2: SaasYearResult;
+  /** Year 3 result, populated even when enableThreeYearView is false (it's free). */
+  year3: SaasYearResult;
+  /** Sum of Y1+Y2+Y3 savings. Used for the "3-year cumulative savings" hero. */
+  threeYearCumulativeSavings: number;
+  /** Sum of Y1+Y2+Y3 in-house "Before" cost (with legacy escalator applied). */
+  threeYearCumulativeBefore: number;
+  /** Sum of Y1+Y2+Y3 total spend after Indecomm (internal-after + platform). */
+  threeYearCumulativeAfterSpend: number;
   perLoanBefore: number;
   perLoanAfter: number;
   perLoanSavings: number;
   perLoanDenominatorAnnual: number;
+  /** Year-1 in-house "Before" annual (matches r.internal.annualBefore — alias for clarity in 3-year views). */
+  year1Before: number;
+  /** Year-2 "Before" with escalator applied to legacy platform cost. */
+  year2Before: number;
+  /** Year-3 "Before" with escalator applied to legacy platform cost. */
+  year3Before: number;
 };
 
 export function computeSaasRoi(model: SaasModelConfig, inputs: SaasInputs): SaasResult {
   const internal = computeSaasInternal(model, inputs);
   const platform = computeSaasPlatformSpend(model, inputs);
+  const esc = model.pricingEscalatorAnnual ?? 0;
 
-  const year1Total = internal.annualAfter + platform.year1Spend;
-  const year2Total = internal.annualAfter + platform.year2Spend;
+  // The legacy platform cost rises with the same escalator (3% default for NFCU).
+  // Labor + indirect held flat — the rep can override via inputs if needed.
+  const legacyY1 = internal.currentPlatformAnnualCost;
+  const legacyY2 = legacyY1 * (1 + esc);
+  const legacyY3 = legacyY1 * (1 + esc) * (1 + esc);
 
-  const year1Savings = internal.annualBefore - year1Total;
-  const year2Savings = internal.annualBefore - year2Total;
+  // "Before" annual = labor cost (constant) + escalating legacy platform cost.
+  // We compute a labor-only baseline so we can re-add escalated legacy per year.
+  const beforeLaborAndIndirect = internal.annualBefore - legacyY1;
+  const year1Before = beforeLaborAndIndirect + legacyY1;
+  const year2Before = beforeLaborAndIndirect + legacyY2;
+  const year3Before = beforeLaborAndIndirect + legacyY3;
+
+  // "After" labor + indirect is also held flat across Y1/Y2/Y3.
+  const afterLaborAndIndirect = internal.annualAfter;
+
+  const year1Total = afterLaborAndIndirect + platform.year1Spend;
+  const year2Total = afterLaborAndIndirect + platform.year2Spend;
+  const year3Total = afterLaborAndIndirect + platform.year3Spend;
+
+  const year1Savings = year1Before - year1Total;
+  const year2Savings = year2Before - year2Total;
+  const year3Savings = year3Before - year3Total;
 
   const year1: SaasYearResult = {
     totalSpend: year1Total,
     savings: year1Savings,
-    savingsPct: internal.annualBefore > 0 ? year1Savings / internal.annualBefore : 0,
+    savingsPct: year1Before > 0 ? year1Savings / year1Before : 0,
     roiPct: platform.year1Spend > 0 ? year1Savings / platform.year1Spend : 0,
   };
   const year2: SaasYearResult = {
     totalSpend: year2Total,
     savings: year2Savings,
-    savingsPct: internal.annualBefore > 0 ? year2Savings / internal.annualBefore : 0,
+    savingsPct: year2Before > 0 ? year2Savings / year2Before : 0,
     roiPct: platform.year2Spend > 0 ? year2Savings / platform.year2Spend : 0,
   };
+  const year3: SaasYearResult = {
+    totalSpend: year3Total,
+    savings: year3Savings,
+    savingsPct: year3Before > 0 ? year3Savings / year3Before : 0,
+    roiPct: platform.year3Spend > 0 ? year3Savings / platform.year3Spend : 0,
+  };
 
-  // Per-loan figures use applications × 12 as the denominator.
+  // Per-loan figures use the model's perLoanVolumeKey × 12 as the denominator.
   const denomVolKey = model.perLoanVolumeKey ?? model.roles[0]?.volumeKey ?? model.volumeInputs[0]?.id;
   const denomMonthly = inputs.volumes[denomVolKey ?? ""] ?? 0;
   const perLoanDenominatorAnnual = denomMonthly * 12;
-  const perLoanBefore = perLoanDenominatorAnnual > 0 ? internal.annualBefore / perLoanDenominatorAnnual : 0;
-  const perLoanAfter = perLoanDenominatorAnnual > 0 ? (internal.annualAfter + platform.annualLicense) / perLoanDenominatorAnnual : 0;
-  // Use "steady state" (Year 2 / per-loan cost without impl) for the bar chart.
+  const perLoanBefore = perLoanDenominatorAnnual > 0 ? year1Before / perLoanDenominatorAnnual : 0;
+  // Use steady state (Year 2 — without implementation) for the per-loan "After" cost.
+  const perLoanAfter = perLoanDenominatorAnnual > 0
+    ? (afterLaborAndIndirect + platform.year2Spend) / perLoanDenominatorAnnual
+    : 0;
 
   return {
     internal,
     platform,
     year1,
     year2,
+    year3,
+    threeYearCumulativeSavings: year1Savings + year2Savings + year3Savings,
+    threeYearCumulativeBefore: year1Before + year2Before + year3Before,
+    threeYearCumulativeAfterSpend: year1Total + year2Total + year3Total,
+    year1Before,
+    year2Before,
+    year3Before,
     perLoanBefore,
     perLoanAfter,
     perLoanSavings: perLoanBefore - perLoanAfter,

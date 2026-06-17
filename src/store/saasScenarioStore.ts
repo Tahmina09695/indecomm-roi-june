@@ -20,7 +20,16 @@ type State = {
     id: string,
     patch: Partial<{ monthlyCost: number; beforeAllocationPct: number }>,
   ) => void;
-  setPricing: (patch: Partial<{ perLoanMonthlyFee: number; oneTimeImplementationFee: number }>) => void;
+  setPricing: (
+    patch: Partial<{
+      perLoanMonthlyFee: number;
+      oneTimeImplementationFee: number;
+      /** Fixed annual license (NFCU-style RFP pricing). When > 0, overrides per-loan calc. */
+      fixedAnnualLicense: number;
+      /** Client's current legacy platform annual cost (added to Before only). */
+      currentPlatformAnnualCost: number;
+    }>,
+  ) => void;
   reset: () => void;
 };
 
@@ -39,7 +48,21 @@ export const useSaasScenario = create<State>((set, get) => ({
   inputs: emptyInputs,
   setModel: (m, initial) => {
     const base = buildSaasDefaults(m);
-    let inputs = initial ?? base;
+    // Merge saved inputs OVER the model defaults so any missing/newly-added
+    // fields (e.g. fixedAnnualLicense, currentPlatformAnnualCost) fall back
+    // to the model's defaults instead of showing as $0. This protects against
+    // stale localStorage saved before new pricing fields were introduced.
+    let inputs: SaasInputs = initial
+      ? {
+          ...base,
+          ...initial,
+          supervisor: { ...base.supervisor, ...(initial.supervisor ?? {}) },
+          pricing: { ...base.pricing, ...(initial.pricing ?? {}) },
+          roles: { ...base.roles, ...(initial.roles ?? {}) },
+          indirect: { ...base.indirect, ...(initial.indirect ?? {}) },
+          volumes: { ...base.volumes, ...(initial.volumes ?? {}) },
+        }
+      : base;
     inputs = { ...inputs, volumes: recomputeSaasDerivedVolumes(m, { ...base.volumes, ...inputs.volumes }) };
     set({ model: m, inputs });
   },

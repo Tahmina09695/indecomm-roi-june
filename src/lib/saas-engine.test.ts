@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { idxgenius } from "@/models/idxgenius";
 import { idxgeniusBulk } from "@/models/idxgenius-bulk";
 import { decisiongenius } from "@/models/decisiongenius";
+import { navyFederal } from "@/models/navy-federal";
 import { buildSaasDefaults, computeSaasRoi } from "./saas-engine";
 
 /**
@@ -244,5 +245,125 @@ describe("IDXGenius Bulk engine - matches hand calculations", () => {
     expect(r.year2.savings).toBeCloseTo(619_500, 2);
     expect(r.year2.savingsPct).toBeCloseTo(0.2593, 3);
     expect(r.year2.roiPct).toBeCloseTo(1.8438, 3);
+  });
+});
+
+/**
+ * Navy Federal Credit Union — Custom RFP Model.
+ *
+ * Four roles with independent volumes, fixed annual license (NFCU's
+ * RFP-quoted bundle price), a $3M current-platform-cost line that adds
+ * to the Before column, and currently a 0% annual escalator (per user
+ * request — hook remains in the model for easy restore to 3%).
+ *
+ *   Indexing & Data Extraction: 5,167 /mo · 12/day · $22/hr · 100% lift · ELIMINATED
+ *   RESPA auditor:              5,167 /mo · 6/day · $30/hr · +75% lift
+ *   Post-Close auditor:         2,075 /mo · 6/day · $30/hr · +60% lift
+ *   Trailing Docs:              6,667 /mo · 10/day · $30/hr · +50% lift
+ *   Sup span 10 @ $95K · benefits 25% · indirect 5×$1M×5% = $250K
+ *
+ *   Fixed annual license: $3,242,000  (CEO-revised pricing, June 2026 — was $3,989,590)
+ *   Implementation:       $520,000    (one-time, Y1)
+ *   Current platform:     $3,000,000  (legacy Paradatec + Hyland + Trinity assumption)
+ *   Escalator:            0% (Y1 = Y2 = Y3)
+ *
+ * Hand-computed expectations:
+ *   FTEs Before: Index 22 + RESPA 43 + PC 17 + TD 33 = 115 direct + 11.5 sup = 126.5
+ *   FTEs After:  Index  0 + RESPA 25 + PC 11 + TD 22 =  58 direct +  5.8 sup =  63.8
+ *   Annual Before: $13,128,025 (incl. $3M current platform)
+ *   Annual After:  $5,338,836.96
+ *   Y1 platform spend: $3,762,000  (license + impl)
+ *   Y2/Y3 platform:    $3,242,000  (no escalator)
+ *   Y1 savings:    $4,027,188
+ *   Y2/Y3 savings: $4,547,188 each
+ *   3-yr cumulative: $13,121,564
+ */
+describe("Navy Federal — Custom RFP Model", () => {
+  const inputs = buildSaasDefaults(navyFederal);
+  const r = computeSaasRoi(navyFederal, inputs);
+
+  it("seeds all four volume inputs from NFCU Table 1", () => {
+    expect(inputs.volumes.indexingVolume).toBe(5167);
+    expect(inputs.volumes.respaVolume).toBe(5167);
+    expect(inputs.volumes.postCloseVolume).toBe(2075);
+    expect(inputs.volumes.trailingDocsVolume).toBe(6667);
+  });
+
+  it("seeds NFCU-specific pricing (fixed annual license + current platform)", () => {
+    expect(inputs.pricing.fixedAnnualLicense).toBe(3_242_000);
+    expect(inputs.pricing.currentPlatformAnnualCost).toBe(3_000_000);
+    expect(inputs.pricing.oneTimeImplementationFee).toBe(520_000);
+  });
+
+  it("computes FTEs per role using each role's own volume", () => {
+    const idx = r.internal.roles.find((x) => x.roleId === "indexingExtraction")!;
+    const respa = r.internal.roles.find((x) => x.roleId === "respaAuditor")!;
+    const pc = r.internal.roles.find((x) => x.roleId === "postCloseAuditor")!;
+    const td = r.internal.roles.find((x) => x.roleId === "trailingDocsAnalyst")!;
+    // Indexing: eliminated by IDXGenius — After FTE forced to 0.
+    expect(idx.fteBefore).toBe(22);
+    expect(idx.fteAfter).toBe(0);
+    expect(respa.fteBefore).toBe(43);
+    expect(respa.fteAfter).toBe(25);
+    expect(pc.fteBefore).toBe(17);
+    expect(pc.fteAfter).toBe(11);
+    expect(td.fteBefore).toBe(33);
+    expect(td.fteAfter).toBe(22);
+  });
+
+  it("adds current platform cost ($3M) to Annual Before only", () => {
+    expect(r.internal.currentPlatformAnnualCost).toBe(3_000_000);
+    expect(r.internal.annualBefore).toBeCloseTo(13_128_025, 0);
+    expect(r.internal.annualAfter).toBeCloseTo(5_338_837, 0);
+  });
+
+  it("uses fixed annual license, not per-loan calculation; escalator currently 0%", () => {
+    expect(r.platform.annualLicense).toBe(3_242_000);
+    expect(r.platform.year1Spend).toBe(3_242_000 + 520_000); // 3,762,000
+    // 0% escalator → Y2 license = Y1 license.
+    expect(r.platform.year2Spend).toBeCloseTo(3_242_000, 0);
+    // 0% escalator → Y3 license = Y1 license.
+    expect(r.platform.year3Spend).toBeCloseTo(3_242_000, 0);
+  });
+
+  it("year 1 / 2 / 3 savings — Y2 and Y3 equal because escalator is 0%", () => {
+    //   Y1 savings = 13,128,025 − (5,338,837 + 3,762,000) = 4,027,188
+    //   Y2 savings = 13,128,025 − (5,338,837 + 3,242,000) = 4,547,188
+    //   Y3 savings = same as Y2 (no escalator)
+    expect(r.year1.savings).toBeCloseTo(4_027_188, 0);
+    expect(r.year1.savingsPct).toBeCloseTo(0.3068, 2);
+    expect(r.year2.savings).toBeCloseTo(4_547_188, 0);
+    expect(r.year3.savings).toBeCloseTo(4_547_188, 0);
+  });
+
+  it("3-year cumulative savings ≈ $13,121,564", () => {
+    // Y1 + Y2 + Y3 = 4,027,188 + 4,547,188 + 4,547,188
+    expect(r.threeYearCumulativeSavings).toBeCloseTo(13_121_564, 0);
+  });
+
+  it("FTEs reduced ≈ 62.7 (Indexing role eliminated + audit role lifts)", () => {
+    // Before 126.5 (115 direct + 11.5 sup), After 63.8 (58 direct + 5.8 sup).
+    expect(r.internal.fteSaved).toBeCloseTo(62.7, 1);
+  });
+});
+
+/**
+ * Engine sanity: a SaaS model WITHOUT currentPlatformAnnualCost should compute
+ * exactly as before (zero added to annualBefore). This protects IDX and DG.
+ */
+describe("SaaS engine — currentPlatformAnnualCost is opt-in", () => {
+  it("IDXGenius (no currentPlatformAnnualCost set) has zero current-platform cost", () => {
+    const inputs = buildSaasDefaults(idxgenius);
+    const r = computeSaasRoi(idxgenius, inputs);
+    expect(r.internal.currentPlatformAnnualCost).toBe(0);
+    expect(inputs.pricing.currentPlatformAnnualCost).toBe(0);
+  });
+
+  it("DecisionGenius (no fixed license) still derives license from per-loan × volume", () => {
+    const inputs = buildSaasDefaults(decisiongenius);
+    const r = computeSaasRoi(decisiongenius, inputs);
+    // DG per-loan = $75 × 500/mo × 12 = $450,000
+    expect(r.platform.annualLicense).toBe(450_000);
+    expect(inputs.pricing.fixedAnnualLicense).toBeUndefined();
   });
 });

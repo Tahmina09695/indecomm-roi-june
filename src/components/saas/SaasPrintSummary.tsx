@@ -14,6 +14,14 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
   const r = computeSaasRoi(model, inputs);
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const accent = model.platform.accentHex;
+  const threeYear = model.enableThreeYearView === true;
+  const capacityFreed = model.tone === "capacity-freed";
+  const fteLabel = capacityFreed ? "FTE Capacity Freed" : "FTEs Reduced";
+
+  // Cumulative 3-year ROI — savings ÷ total Indecomm platform spend over Y1+Y2+Y3.
+  // Computed inline (no engine change) to mirror the on-screen ResultsPanel banner.
+  const cumulativePlatformSpend = r.platform.year1Spend + r.platform.year2Spend + r.platform.year3Spend;
+  const cumulativeRoiPct = cumulativePlatformSpend > 0 ? r.threeYearCumulativeSavings / cumulativePlatformSpend : 0;
 
   return (
     <div className="print-only" style={{ fontFamily: "Open Sans, sans-serif", color: "#002060" }}>
@@ -41,8 +49,87 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
           </div>
         </div>
 
-        {/* HERO band — leads with $ savings for "savings-first" models (e.g., IDX),
-            and leads with ROI % for "roi-first" models (e.g., DG). */}
+        {/* HERO band. Three variants:
+            - 3-Year (NFCU) — Y1/Y2/Y3 columns with ROI lines + Cumulative + FTE column,
+              followed by a bold colored 3-Year Cumulative ROI banner.
+            - 2-Year savings-first (IDX) — Y1/Y2 $ + FTE column
+            - 2-Year ROI-first (DG) — Y1/Y2 ROI% + FTE column */}
+        {threeYear ? (
+          <>
+            <table style={{ width: "100%", marginBottom: 6, borderCollapse: "collapse" }}>
+              <tbody>
+                <tr>
+                  <td style={{ border: `3px solid ${accent}`, borderRadius: 10, padding: 11, background: `${accent}15`, width: "100%" }}>
+                    <table style={{ width: "100%" }}>
+                      <tbody>
+                        <tr>
+                          {/* Year 1 */}
+                          <td style={{ width: "22%", verticalAlign: "top" }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>Year 1 Savings</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.0, marginTop: 2 }}>{fmtCurrency(r.year1.savings, { compact: true })}</div>
+                            <div style={{ fontSize: 9, color: "#002060AA", marginTop: 2 }}>{fmtPercent(r.year1.savingsPct, 1)} saved</div>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "#002060", marginTop: 1 }}>ROI: {fmtPercent(r.year1.roiPct, 0)}</div>
+                          </td>
+                          {/* Year 2 */}
+                          <td style={{ width: "22%", verticalAlign: "top", borderLeft: `2px solid ${accent}55`, paddingLeft: 12 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>Year 2 Savings</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.0, marginTop: 2, color: accent }}>{fmtCurrency(r.year2.savings, { compact: true })}</div>
+                            <div style={{ fontSize: 9, color: "#002060AA", marginTop: 2 }}>{fmtPercent(r.year2.savingsPct, 1)} saved</div>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "#002060", marginTop: 1 }}>ROI: {fmtPercent(r.year2.roiPct, 0)}</div>
+                          </td>
+                          {/* Year 3 */}
+                          <td style={{ width: "22%", verticalAlign: "top", borderLeft: `2px solid ${accent}55`, paddingLeft: 12 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>Year 3 Savings</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.0, marginTop: 2, color: accent }}>{fmtCurrency(r.year3.savings, { compact: true })}</div>
+                            <div style={{ fontSize: 9, color: "#002060AA", marginTop: 2 }}>{fmtPercent(r.year3.savingsPct, 1)} saved</div>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "#002060", marginTop: 1 }}>ROI: {fmtPercent(r.year3.roiPct, 0)}</div>
+                          </td>
+                          {/* 3-Year cumulative — the headline number */}
+                          <td style={{ width: "22%", verticalAlign: "top", borderLeft: `2px solid ${accent}55`, paddingLeft: 12 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: accent }}>3-Year Cumulative</div>
+                            <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.0, marginTop: 2 }}>{fmtCurrency(r.threeYearCumulativeSavings, { compact: true })}</div>
+                            <div style={{ fontSize: 9, color: "#002060AA", marginTop: 2 }}>Savings (Y1 + Y2 + Y3)</div>
+                          </td>
+                          {/* FTE column */}
+                          <td style={{ textAlign: "right", width: "12%", verticalAlign: "top", borderLeft: `2px solid ${accent}55`, paddingLeft: 12 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>{fteLabel}</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.0, marginTop: 2 }}>{r.internal.fteSaved.toFixed(1)}</div>
+                            <div style={{ fontSize: 9, color: "#002060AA", marginTop: 2 }}>{r.internal.totalFTEBefore.toFixed(1)} → {r.internal.totalFTEAfter.toFixed(1)}</div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Bold colored cumulative-ROI banner — the headline contract-life number. */}
+            <table style={{ width: "100%", marginBottom: 10, borderCollapse: "collapse" }}>
+              <tbody>
+                <tr>
+                  <td style={{ background: accent, borderRadius: 8, padding: "8px 14px" }}>
+                    <table style={{ width: "100%" }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ color: "white" }}>
+                            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.4, textTransform: "uppercase" }}>3-Year Cumulative ROI</span>
+                          </td>
+                          <td style={{ textAlign: "right", color: "white" }}>
+                            <span style={{ fontSize: 24, fontWeight: 800 }}>{fmtPercent(cumulativeRoiPct, 0)}</span>
+                            <span style={{ fontSize: 10, marginLeft: 10, opacity: 0.95 }}>
+                              {fmtCurrency(r.threeYearCumulativeSavings, { compact: true })} saved on {fmtCurrency(cumulativePlatformSpend, { compact: true })} Indecomm investment
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </>
+        ) : (
         <table style={{ width: "100%", marginBottom: 10, borderCollapse: "collapse" }}>
           <tbody>
             <tr>
@@ -62,7 +149,7 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
                           <div style={{ fontSize: 10, color: "#002060AA" }}>{fmtPercent(r.year2.savingsPct, 1)} of current cost</div>
                         </td>
                         <td style={{ textAlign: "right", borderLeft: `2px solid ${accent}55`, paddingLeft: 16 }}>
-                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>FTEs Reduced</div>
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>{fteLabel}</div>
                           <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.0, marginTop: 2 }}>{r.internal.fteSaved.toFixed(1)}</div>
                           <div style={{ fontSize: 10, color: "#002060AA" }}>{r.internal.totalFTEBefore.toFixed(1)} → {r.internal.totalFTEAfter.toFixed(1)} FTEs</div>
                         </td>
@@ -80,7 +167,7 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
                           <div style={{ fontSize: 10, color: "#002060AA" }}>Savings: <strong>{fmtCurrency(r.year2.savings)}</strong> ({fmtPercent(r.year2.savingsPct, 0)})</div>
                         </td>
                         <td style={{ textAlign: "right", borderLeft: `2px solid ${accent}55`, paddingLeft: 16 }}>
-                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>FTEs Reduced</div>
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: "#002060AA" }}>{fteLabel}</div>
                           <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.0, marginTop: 2 }}>{r.internal.fteSaved.toFixed(1)}</div>
                           <div style={{ fontSize: 10, color: "#002060AA" }}>{r.internal.totalFTEBefore.toFixed(1)} → {r.internal.totalFTEAfter.toFixed(1)} FTEs</div>
                         </td>
@@ -92,6 +179,7 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
             </tr>
           </tbody>
         </table>
+        )}
 
         {/* Body: 2-column with table layout for print safety */}
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 8 }}>
@@ -107,6 +195,12 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
                           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#002060" }}>Annual Cost Before</div>
                           <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{fmtCurrency(r.internal.annualBefore)}</div>
                           <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>{r.internal.totalFTEBefore.toFixed(1)} FTEs · {fmtCurrencyPrecise(r.perLoanBefore)}/loan</div>
+                          <div style={{ fontSize: 8.5, color: "#475569", marginTop: 3, lineHeight: 1.35 }}>
+                            Includes: labor + supervisor + benefits + indirect
+                            {r.internal.currentPlatformAnnualCost > 0
+                              ? ` + legacy platform (${fmtCurrency(r.internal.currentPlatformAnnualCost, { compact: true })})`
+                              : ""}
+                          </div>
                         </div>
                       </td>
                       <td style={{ width: "50%" }}>
@@ -114,6 +208,9 @@ export function SaasPrintSummary({ model }: { model: SaasModelConfig }) {
                           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: accent }}>Annual Cost After (Y2)</div>
                           <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{fmtCurrency(r.internal.annualAfter + r.platform.year2Spend)}</div>
                           <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>{r.internal.totalFTEAfter.toFixed(1)} FTEs · {fmtCurrencyPrecise(r.perLoanAfter)}/loan</div>
+                          <div style={{ fontSize: 8.5, color: "#475569", marginTop: 3, lineHeight: 1.35 }}>
+                            Includes: in-house labor After + benefits + indirect + Indecomm license ({fmtCurrency(r.platform.year2Spend, { compact: true })}).
+                          </div>
                         </div>
                       </td>
                     </tr>
